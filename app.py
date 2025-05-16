@@ -1,77 +1,55 @@
 import streamlit as st
 import pandas as pd
-import cv2
 import numpy as np
 from PIL import Image
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 # Load color dataset
 @st.cache_data
 def load_colors(csv_path="colors.csv"):
     return pd.read_csv(csv_path)
 
-# Calculate closest color by Euclidean distance
+# Calculate closest color using Euclidean distance
 def get_closest_color_name(R, G, B, color_data):
     minimum = float("inf")
-    color_name = "Unknown"
-    for i in range(len(color_data)):
-        d = np.sqrt((R - int(color_data.loc[i, "R"])) ** 2 +
-                    (G - int(color_data.loc[i, "G"])) ** 2 +
-                    (B - int(color_data.loc[i, "B"])) ** 2)
+    closest_color = "Unknown"
+    for _, row in color_data.iterrows():
+        d = np.sqrt((R - row["R"])**2 + (G - row["G"])**2 + (B - row["B"])**2)
         if d < minimum:
             minimum = d
-            color_name = color_data.loc[i, "color_name"]
-    return color_name
+            closest_color = row["color_name"]
+    return closest_color
 
-# Load the dataset
+# Load dataset
 color_data = load_colors()
 
+# Streamlit App UI
+st.set_page_config(page_title="Color Detection App", layout="centered")
 st.title("🎨 Color Detection from Images")
-st.write("Upload an image and click on it to detect the color.")
+st.markdown("Upload an image and click anywhere to detect the color at that point.")
 
-uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     image_np = np.array(image)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    st.write("Click anywhere on the image below:")
+    st.markdown("### Click on the image below to detect the color")
+    coords = streamlit_image_coordinates(image, key="click")
 
-    # Use OpenCV to get mouse click
-    click_info = st.session_state.get("click_info", None)
+    if coords is not None:
+        x, y = coords['x'], coords['y']
+        if 0 <= x < image_np.shape[1] and 0 <= y < image_np.shape[0]:
+            R, G, B = image_np[y, x]
+            color_name = get_closest_color_name(R, G, B, color_data)
 
-    if "clicked" not in st.session_state:
-        st.session_state.clicked = False
+            st.markdown("---")
+            st.markdown(f"### Detected Color: **{color_name}**")
+            st.write(f"**RGB:** ({R}, {G}, {B})")
 
-    if st.button("Reset Click"):
-        st.session_state.clicked = False
-        st.session_state.click_info = None
-
-    def click_event():
-        # Launch OpenCV window to get pixel
-        def draw_function(event, x, y, flags, param):
-            if event == cv2.EVENT_LBUTTONDOWN:
-                pixel = image_np[y, x]
-                R, G, B = int(pixel[0]), int(pixel[1]), int(pixel[2])
-                st.session_state.clicked = True
-                st.session_state.click_info = {"x": x, "y": y, "R": R, "G": G, "B": B}
-                cv2.destroyAllWindows()
-
-        img_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        cv2.imshow("Click on Image", img_bgr)
-        cv2.setMouseCallback("Click on Image", draw_function)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-    if st.button("Click to Detect Color"):
-        click_event()
-
-    if st.session_state.clicked:
-        info = st.session_state.click_info
-        color_name = get_closest_color_name(info["R"], info["G"], info["B"], color_data)
-        st.success(f"**Detected Color:** {color_name}")
-        st.write(f"**RGB:** ({info['R']}, {info['G']}, {info['B']})")
-        st.markdown(
-            f"<div style='width:100px;height:50px;background-color:rgb({info['R']},{info['G']},{info['B']});border-radius:5px'></div>",
-            unsafe_allow_html=True,
-        )
+            st.markdown(
+                f"<div style='width:100px;height:50px;background-color:rgb({R},{G},{B});border-radius:5px;border:1px solid #000'></div>",
+                unsafe_allow_html=True
+            )
+        else:
+            st.error("Click was outside the image bounds.")
